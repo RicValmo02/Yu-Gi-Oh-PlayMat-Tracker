@@ -4,7 +4,10 @@ import { Overlay, drawCards } from "./overlay";
 import { CardDetector, DEFAULT_VISION, loadCv, type VisionParams } from "./vision";
 import { Tracker, DEFAULT_TRACKER, type TrackerParams } from "./tracker";
 import { buildSliders, loadJson, saveJson } from "./panel";
-import type { TrackedCard } from "./types";
+import { Renderer } from "./renderer";
+import { CardLayer, DEFAULT_ART, type ArtParams } from "./cardLayer";
+import { artUrlById, buildLibraryUI, loadLibrary } from "./library";
+import type { CardInfo, TrackedCard } from "./types";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const video = $<HTMLVideoElement>("video");
@@ -16,7 +19,14 @@ const stopBtn = $<HTMLButtonElement>("stop");
 const statusEl = $<HTMLSpanElement>("status");
 
 const camera = new Camera(video);
-const overlay = new Overlay(canvas, video, $("stage"));
+const glCanvas = $<HTMLCanvasElement>("gl");
+const renderer = new Renderer(glCanvas);
+const overlay = new Overlay(canvas, video, $("stage"), {
+  extra: [glCanvas],
+  onLayout: (cssW, cssH, vw, vh) => renderer.resize(cssW, cssH, vw, vh),
+});
+let library: CardInfo[] = [];
+const cardLayer = new CardLayer(renderer.scene, (id) => artUrlById(library, id), renderer.maxAnisotropy);
 
 const STORAGE_KEY = "ygo-tracker-settings";
 type Settings = { deviceId?: string; resolution?: Resolution };
@@ -77,11 +87,95 @@ loadCv()
 
 debugChk.onchange = () => (debugCanvas.hidden = !debugChk.checked);
 
-/** Layer dell'overlay: rileva (a frequenza limitata), aggiorna il tracker e disegna le carte. */
-overlay.addLayer((ctx) => {
+// ---- Artwork e selezione ----
+const artParams: ArtParams = loadJson("ygo-art", DEFAULT_ART);
+const ui = loadJson("ygo-ui", { mirror: false, showBoxes: true });
+buildSliders($("artSliders"), artParams, [
+  { key: "opacity", label: "Opacità", min: 0, max: 1, step: 0.05, fmt: (v) => `${Math.round(v * 100)}%` },
+  { key: "scale", label: "Scala", min: 0.5, max: 2, step: 0.05, fmt: (v) => `${v.toFixed(2)}×` },
+  { key: "lift", label: "Sollevamento", min: 0, max: 0.4, step: 0.01, fmt: (v) => `${Math.round(v * 100)}%` },
+], () => saveJson("ygo-art", artParams));
+
+const mirrorChk = $<HTMLInputElement>("mirror");
+const boxesChk = $<HTMLInputElement>("showBoxes");
+const trackedSel = $<HTMLSelectElement>("trackedSelect");
+const flipBtn = $<HTMLButtonElement>("flip");
+const unassignBtn = $<HTMLButtonElement>("unassign");
+let selectedId: number | null = null;
+let idsKey = "";
+
+mirrorChk.checked = ui.mirror;
+boxesChk.checked = ui.showBoxes;
+const applyMirror = () => {
+  video.style.transform = ui.mirror ? "scaleX(-1)" : "";
+  renderer.setMirror(ui.mirror);
+};
+mirrorChk.onchange = () => ((ui.mirror = mirrorChk.checked), applyMirror(), saveJson("ygo-ui", ui));
+boxesChk.onchange = () => ((ui.showBoxes = boxesChk.checked), saveJson("ygo-ui", ui));
+applyMirror();
+
+function refreshTrackedUI() {
+  const key = cards.map((c) => `${c.id}:${cardLayer.cardIdOf(c.id) ?? ""}`).join(",") + `|${selectedId}`;
+  if (key === idsKey) return;
+  idsKey = key;
+  if (selectedId !== null && !cards.some((c) => c.id === selectedId)) selectedId = null;
+  trackedSel.replaceChildren(
+    new Option("— nessuna —", ""),
+    ...cards.map((c) => {
+      const cid = cardLayer.cardIdOf(c.id);
+      const name = cid !== undefined ? library.find((l) => l.id === cid)?.name ?? cid : "senza artwork";
+      return new Option(`#${c.id} · ${name}`, String(c.id));
+    }),
+  );
+  trackedSel.value = selectedId === null ? "" : String(selectedId);
+  const assigned = selectedId !== null && cardLayer.cardIdOf(selectedId) !== undefined;
+  flipBtn.disabled = unassignBtn.disabled = !assigned;
+}
+
+trackedSel.onchange = () => ((selectedId = trackedSel.value ? Number(trackedSel.value) : null), (idsKey = ""));
+flipBtn.onclick = () => selectedId !== null && cardLayer.toggleFlip(selectedId);
+unassignBtn.onclick = () => (selectedId !== null && cardLayer.unassign(selectedId), (idsKey = ""));
+
+loadLibrary().then((list) => {
+  library = list;
+  buildLibraryUI($("library"), $<HTMLInputElement>("search"), list, (c) => {
+    if (selectedId === null) return void (statsEl.textContent += "\nSeleziona prima una carta tracciata.");
+    cardLayer.assign(selectedId, c.id);
+    idsKey = "";
+  });
+});
+
+/** Click sul video → coordinate del frame → carta tracciata sotto il puntatore (l'ultima disegnata vince). */
+video.addEventListener("click", (ev) => {
+  const r = video.getBoundingClientRect();
+  let x = ((ev.clientX - r.left) / r.width) * video.videoWidth;
+  const y = ((ev.clientY - r.top) / r.height) * video.videoHeight;
+  if (ui.mirror) x = video.videoWidth - x;
+  const hit = [...cards].reverse().find((c) => pointInQuad(x, y, c.corners));
+  selectedId = hit ? hit.id : null;
+  idsKey = "";
+});
+
+function pointInQuad(x: number, y: number, q: readonly { x: number; y: number }[]) {
+  let sign = 0;
+  for (let i = 0; i < 4; i++) {
+    const a = q[i], b = q[(i + 1) % 4];
+    const cr = (b.x - a.x) * (y - a.y) - (b.y - a.y) * (x - a.x);
+    if (cr !== 0) {
+      if (sign && Math.sign(cr) !== sign) return false;
+      sign = Math.sign(cr);
+    }
+  }
+  return true;
+}
+
+/** Un solo requestAnimationFrame (in Overlay): visione a frequenza ridotta, poi rendering ogni frame. */
+overlay.addLayer((ctx, _w, _h, dt) => {
   const now = performance.now();
   const ready = detector && camera.running && video.readyState >= 2 && detectChk.checked;
-  if (ready && now - lastDetect >= 1000 / vision.maxHz) {
+  // La visione non può occupare più di ~1/3 del tempo: l'intervallo cresce se l'elaborazione è lenta.
+  const interval = Math.max(1000 / vision.maxHz, procMs * 3);
+  if (ready && now - lastDetect >= interval) {
     lastDetect = now;
     const r = detector!.detect(video, vision, debugChk.checked ? debugCanvas : undefined);
     procMs = procMs ? procMs * 0.8 + r.ms * 0.2 : r.ms;
@@ -92,7 +186,15 @@ overlay.addLayer((ctx) => {
     tracker.reset();
     cards = [];
   }
-  drawCards(ctx, cards, now);
+  cardLayer.sync(cards, artParams, dt);
+  renderer.render();
+  refreshTrackedUI();
+  drawCards(ctx, cards, now, {
+    mirror: ui.mirror,
+    showBoxes: ui.showBoxes,
+    selectedId,
+    assigned: new Set(cardLayer.assignments.map((a) => a.trackedId)),
+  });
 });
 
 function setStatus(msg: string, error = false) {
@@ -141,6 +243,8 @@ function stop() {
   overlay.stop();
   tracker.reset();
   cards = [];
+  cardLayer.sync([], artParams, 0); // rimuove piani e texture
+  renderer.render(); // svuota il canvas WebGL
   setRunning(false);
   setStatus("Fermata");
 }

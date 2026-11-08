@@ -22,3 +22,15 @@ body { display: flex; flex-direction: column; }
 .stats { font-family: monospace; margin-top: 12px; white-space: pre; }
 .legend { margin-top: 10px; font-size: 12px; opacity: 0.8; }
 @media (max-width: 800px) { .stage { flex-wrap: wrap; } .panel { flex-basis: 100%; } }
+
+#gl { position: absolute; pointer-events: none; }
+#video { cursor: crosshair; }
+.panel h3 { margin: 14px 0 6px; font-size: 13px; text-transform: uppercase; opacity: 0.7; }
+.panel .hint { margin: 0 0 6px; font-size: 12px; opacity: 0.7; }
+.panel select, .panel input[type="search"] { width: 100%; margin-bottom: 6px; padding: 5px; }
+.panel .row { display: flex; gap: 6px; margin-bottom: 6px; }
+.panel .row button { flex: 1; padding: 5px; }
+.library { max-height: 240px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.lib-item { display: flex; align-items: center; gap: 8px; text-align: left; padding: 3px; background: #2a2a2a; color: #eee; border: 1px solid #444; cursor: pointer; }
+.lib-item:hover { border-color: #888; }
+.lib-item img { width: 40px; height: 40px; object-fit: cover; flex: none; }

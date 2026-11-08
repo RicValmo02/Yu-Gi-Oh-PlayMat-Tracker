@@ -20,12 +20,27 @@
     <main class="stage">
       <div class="viewport" id="stage">
         <video id="video" autoplay muted playsinline></video>
+        <canvas id="gl"></canvas>
         <canvas id="overlay"></canvas>
       </div>
       <canvas id="debug" hidden></canvas>
       <aside class="panel">
         <label class="check"><input type="checkbox" id="detect" checked /> Rileva carte</label>
+        <label class="check"><input type="checkbox" id="mirror" /> Specchia video</label>
+        <label class="check"><input type="checkbox" id="showBoxes" checked /> Riquadri debug (carte con artwork)</label>
         <label class="check"><input type="checkbox" id="showDebug" /> Vista bordi/contorni</label>
+        <h3>Artwork</h3>
+        <div id="artSliders"></div>
+        <h3>Carte tracciate</h3>
+        <p class="hint">Clicca una carta nel video o scegli l'ID, poi una carta dall'elenco.</p>
+        <select id="trackedSelect"></select>
+        <div class="row">
+          <button id="flip" disabled>Ruota 180°</button>
+          <button id="unassign" disabled>Rimuovi artwork</button>
+        </div>
+        <input id="search" type="search" placeholder="Cerca carta…" />
+        <div id="library" class="library"></div>
+        <h3>Visione</h3>
         <div id="sliders"></div>
         <div id="stats" class="stats">OpenCV: in caricamento…</div>
         <div class="legend">Debug: <span style="color:#4f4">verde = accettato</span>, <span style="color:#f44">rosso = scartato</span></div>
