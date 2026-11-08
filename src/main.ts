@@ -243,7 +243,7 @@ function stop() {
   overlay.stop();
   tracker.reset();
   cards = [];
-  cardLayer.sync([], artParams, 0); // rimuove piani e texture
+  cardLayer.clear(); // rimuove piani, texture e ricordi
   renderer.render(); // svuota il canvas WebGL
   setRunning(false);
   setStatus("Fermata");
