@@ -220,7 +220,7 @@ async function initIdentification() {
 }
 
 // ---- Mazzo (.ydk) ----
-const deckCache = await DeckCache.open();
+const deckCache = new DeckCache();
 const deckMgr = new DeckManager({
   cache: deckCache,
   embedder: () => embedder,
