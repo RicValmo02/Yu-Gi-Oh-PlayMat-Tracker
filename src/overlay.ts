@@ -1,3 +1,5 @@
+import type { TrackedCard } from "./types";
+
 /** Canvas sovrapposto al video + loop di disegno. */
 export type DrawFn = (ctx: CanvasRenderingContext2D, w: number, h: number, dt: number) => void;
 
@@ -95,5 +97,51 @@ export class Overlay {
     ctx.fillRect(pad, pad, m.width + pad * 2, size + pad * 2);
     ctx.fillStyle = "#0f0";
     ctx.fillText(text, pad * 2, pad * 2);
+  }
+}
+
+/** Disegna le carte tracciate: riquadro, ID, orientamento e marcatore dell'angolo TL. */
+export function drawCards(ctx: CanvasRenderingContext2D, cards: TrackedCard[], now: number) {
+  const base = Math.max(2, Math.round(ctx.canvas.height / 270));
+  for (const card of cards) {
+    const hue = (card.id * 67) % 360;
+    const missing = now - card.lastSeen > 100; // non vista di recente: tratteggiata e più tenue
+    const color = `hsl(${hue} 90% 55%)`;
+    ctx.save();
+    ctx.globalAlpha = missing ? 0.45 : 1;
+    ctx.lineWidth = base;
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.setLineDash(missing ? [base * 3, base * 2] : []);
+    ctx.beginPath();
+    card.corners.forEach((c, i) => (i ? ctx.lineTo(c.x, c.y) : ctx.moveTo(c.x, c.y)));
+    ctx.closePath();
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Pallino sull'angolo TL (primo angolo) + linea del lato superiore più spessa.
+    const [tl, tr] = card.corners;
+    ctx.beginPath();
+    ctx.arc(tl.x, tl.y, base * 2.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.lineWidth = base * 2.5;
+    ctx.beginPath();
+    ctx.moveTo(tl.x, tl.y);
+    ctx.lineTo(tr.x, tr.y);
+    ctx.stroke();
+
+    const cx = card.corners.reduce((s, c) => s + c.x, 0) / 4;
+    const cy = card.corners.reduce((s, c) => s + c.y, 0) / 4;
+    const size = Math.round(ctx.canvas.height / 36);
+    const label = `#${card.id} ${card.orientation === "portrait" ? "verticale" : "orizzontale"}`;
+    ctx.font = `bold ${size}px sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    const tw = ctx.measureText(label).width;
+    ctx.fillStyle = "rgba(0,0,0,0.65)";
+    ctx.fillRect(cx - tw / 2 - 6, cy - size / 2 - 4, tw + 12, size + 8);
+    ctx.fillStyle = "#fff";
+    ctx.fillText(label, cx, cy);
+    ctx.restore();
   }
 }
