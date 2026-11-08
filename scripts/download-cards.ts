@@ -2,7 +2,7 @@
  * Scarica da YGOPRODeck dati e artwork ritagliato delle carte elencate in cards.config.json
  * e li salva in public/cards/ (immagini + cards.json). Esegui UNA volta: il sito non chiama più l'API.
  *
- *   npm run cards            (Node >= 22.18 esegue direttamente i .ts; altrimenti: npx tsx scripts/download-cards.ts)
+ *   npm run cards            (usa tsx, quindi funziona con Node >= 18)
  *
  * Variabile opzionale YGOPRODECK_API per puntare a un altro endpoint (utile nei test).
  */
