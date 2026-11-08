@@ -4,9 +4,10 @@ import { ART_REGION } from "./cardGeometry";
 import { MODEL, type Mode, type ModelInfo } from "./modelConfig";
 import { rotate180, toModelInput, type RgbaImage } from "./preprocess";
 
-// File wasm di ONNX Runtime Web serviti da Vite (niente CDN a runtime).
-const ortMjs = new URL("../node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.jsep.mjs", import.meta.url).href;
-const ortWasm = new URL("../node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.jsep.wasm", import.meta.url).href;
+// File wasm di ONNX Runtime Web serviti da Vite (niente CDN a runtime). Build "asyncify": è quella che
+// transformers.js usa di default e l'unica con WebGPU funzionante (la build "jsep" dà "webgpuInit is not a function").
+const ortMjs = new URL("../node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.mjs", import.meta.url).href;
+const ortWasm = new URL("../node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.wasm", import.meta.url).href;
 
 let backend: EmbedBackend | null = null;
 let info: ModelInfo = MODEL;

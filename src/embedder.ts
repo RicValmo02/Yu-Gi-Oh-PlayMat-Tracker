@@ -9,7 +9,7 @@ export interface EmbedResult {
 
 /** Client del Web Worker che esegue il modello: il thread principale non si blocca durante l'inferenza. */
 export class Embedder {
-  private worker = new Worker(new URL("./embedder.worker.ts", import.meta.url), { type: "module" });
+  private worker!: Worker;
   private nextId = 1;
   private pending = new Map<number, { resolve: (r: EmbedResult) => void; reject: (e: Error) => void }>();
   private initWaiter: { resolve: (v: { device: string; name: string }) => void; reject: (e: Error) => void } | null = null;
@@ -20,6 +20,12 @@ export class Embedder {
   onProgress: ((percent: number) => void) | null = null;
 
   constructor() {
+    this.spawn();
+  }
+
+  private spawn() {
+    this.worker?.terminate();
+    this.worker = new Worker(new URL("./embedder.worker.ts", import.meta.url), { type: "module" });
     this.worker.onmessage = (ev: MessageEvent<WorkerOut>) => {
       const m = ev.data;
       if (m.type === "progress") {
@@ -43,9 +49,20 @@ export class Embedder {
     };
   }
 
-  /** Carica il modello (una volta sola). WebGPU se disponibile, altrimenti WASM. */
-  init(model: ModelInfo, localModelPath?: string) {
-    const device = "gpu" in navigator && model.backend === "dinov2" ? "webgpu" : "wasm";
+  /** Carica il modello (una volta sola). WebGPU se disponibile; se non parte, nuovo worker con WASM. */
+  async init(model: ModelInfo, localModelPath?: string) {
+    const wantGpu = "gpu" in navigator && model.backend === "dinov2";
+    try {
+      return await this.initOn(wantGpu ? "webgpu" : "wasm", model, localModelPath);
+    } catch (e) {
+      if (!wantGpu) throw e;
+      console.warn("WebGPU non utilizzabile, passo a WASM:", e);
+      this.spawn(); // sessione ONNX pulita: un errore di init WebGPU può restare in cache nel worker
+      return this.initOn("wasm", model, localModelPath);
+    }
+  }
+
+  private initOn(device: "webgpu" | "wasm", model: ModelInfo, localModelPath?: string) {
     return new Promise<{ device: string; name: string }>((resolve, reject) => {
       this.initWaiter = { resolve, reject };
       const msg: WorkerIn = { type: "init", model, device, localModelPath };
