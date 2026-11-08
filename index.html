@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Yu-Gi-Oh! Playmat Tracker</title>
+  </head>
+  <body>
+    <header class="toolbar">
+      <select id="device" title="Webcam"></select>
+      <select id="resolution" title="Risoluzione">
+        <option value="720">720p</option>
+        <option value="1080">1080p</option>
+        <option value="2160">4K</option>
+      </select>
+      <button id="start">Avvia</button>
+      <button id="stop" disabled>Ferma</button>
+      <span id="status"></span>
+    </header>
+    <main class="stage" id="stage">
+      <video id="video" autoplay muted playsinline></video>
+      <canvas id="overlay"></canvas>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

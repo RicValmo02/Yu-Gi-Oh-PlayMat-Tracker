@@ -1,0 +1,12 @@
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: #111; color: #eee; font-family: system-ui, sans-serif; }
+body { display: flex; flex-direction: column; }
+.toolbar { display: flex; gap: 8px; align-items: center; padding: 8px; background: #1c1c1c; flex-wrap: wrap; }
+.toolbar select, .toolbar button { padding: 6px 10px; font-size: 14px; }
+#status { font-size: 13px; opacity: 0.8; }
+#status.error { color: #ff7b7b; opacity: 1; }
+.stage { position: relative; flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
+/* video e canvas condividono lo stesso box: object-fit non è usato, il box è dimensionato in JS */
+#video, #overlay { position: absolute; }
+#video { background: #000; }
+#overlay { pointer-events: none; }
