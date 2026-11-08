@@ -39,6 +39,26 @@ export class EmbeddingDb {
     return new EmbeddingDb(mode, index.model.dim, index.cards, invNorm, q);
   }
 
+  /** Costruisce un database in memoria da vettori unitari (es. le carte di un mazzo). null = riga senza vettore. */
+  static fromVectors(mode: Mode, dim: number, cards: IndexCard[], vectors: (Float32Array | null)[]): EmbeddingDb {
+    const n = cards.length;
+    const inv = new Float32Array(n);
+    const q = new Int8Array(n * dim);
+    vectors.forEach((v, r) => {
+      if (!v) return;
+      let max = 0;
+      for (const x of v) max = Math.max(max, Math.abs(x));
+      let norm = 0;
+      for (let i = 0; i < dim; i++) {
+        const qi = Math.round((v[i] / (max || 1)) * 127);
+        q[r * dim + i] = qi;
+        norm += qi * qi;
+      }
+      inv[r] = 1 / Math.sqrt(norm || 1);
+    });
+    return new EmbeddingDb(mode, dim, cards, inv, q);
+  }
+
   get size() {
     return this.cards.length;
   }

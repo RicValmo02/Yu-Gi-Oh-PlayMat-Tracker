@@ -1,6 +1,21 @@
 # Passo 4 – identificazione automatica
 
-## Setup
+## Modo facile: carica il tuo mazzo (.ydk)
+1. `npm install && npm run dev`, poi **📂 Mazzo…** nella barra in alto.
+2. Trascina il file `.ydk` (o «scegli file»), scegli quali sezioni includere (Main/Extra/Side) e premi **Scarica e prepara**.
+3. Il browser chiede i dati con una sola richiesta all'API YGOPRODeck, scarica gli artwork *una volta sola* (pausa tra le
+   richieste), calcola gli embedding con lo stesso modello dell'identificazione e salva tutto in IndexedDB: alla volta
+   successiva il mazzo si riapre da solo, senza rete. Le carte del mazzo vengono usate anche per l'elenco di assegnazione manuale.
+4. Con «Cerca solo tra le carte del mazzo» l'identificazione confronta ~40 candidati invece di migliaia: molto più precisa.
+5. Dorso (opzionale): scegli un'immagine del tuo dorso nella finestra, oppure metti `public/cards/back.jpg`.
+
+Il download passa dai proxy di Vite (`/ygo-api`, `/ygo-img`, in `vite.config.ts`): funziona con `npm run dev` e
+`npm run preview`; un hosting statico senza proxy non li ha. `npm run cards` / `npm run embeddings` servono solo se vuoi il
+database completo (modalità «tutto il database»).
+
+## Modo database completo (opzionale)
+
+### Setup
 ```bash
 git pull && npm install
 npm run cards        # scarica artwork (+ carta intera) e il dorso in public/cards/

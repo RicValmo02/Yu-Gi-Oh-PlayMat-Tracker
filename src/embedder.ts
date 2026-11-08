@@ -53,12 +53,17 @@ export class Embedder {
     });
   }
 
-  embed(rgba: Uint8ClampedArray, w: number, h: number, mode: Mode) {
+  /** Embedding di un'immagine di riferimento del database (artwork o carta intera, senza ritaglio né rotazione). */
+  async embedReference(rgba: Uint8ClampedArray, w: number, h: number, mode: Mode): Promise<Float32Array> {
+    return (await this.embed(rgba, w, h, mode, true)).vectors[0];
+  }
+
+  embed(rgba: Uint8ClampedArray, w: number, h: number, mode: Mode, reference = false) {
     const id = this.nextId++;
     return new Promise<EmbedResult>((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
       const buf = rgba.buffer as ArrayBuffer;
-      const msg: WorkerIn = { type: "embed", id, rgba: buf, w, h, mode };
+      const msg: WorkerIn = { type: "embed", id, rgba: buf, w, h, mode, reference };
       this.worker.postMessage(msg, [buf]);
     });
   }

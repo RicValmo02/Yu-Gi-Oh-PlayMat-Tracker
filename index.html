@@ -13,10 +13,38 @@
         <option value="1080">1080p</option>
         <option value="2160">4K</option>
       </select>
+      <button id="deckBtn" title="Carica un mazzo .ydk">📂 Mazzo…</button>
+      <span id="deckStatus" class="deck-status"></span>
       <button id="start">Avvia</button>
       <button id="stop" disabled>Ferma</button>
       <span id="status"></span>
     </header>
+    <dialog id="deckDialog">
+      <h2>Carica mazzo</h2>
+      <div id="deckDrop" class="drop">
+        Trascina qui un file <b>.ydk</b> (da Master Duel, YGOPRO, YGOPRODeck…) oppure
+        <label class="filebtn">scegli file<input id="deckFile" type="file" accept=".ydk,.txt" hidden /></label>
+      </div>
+      <div id="deckRecent" class="recent" hidden></div>
+      <div class="deck-head">
+        <b id="deckName"></b> <span id="deckCount"></span>
+        <span class="inc">
+          <label><input type="checkbox" id="incMain" checked /> Main</label>
+          <label><input type="checkbox" id="incExtra" checked /> Extra</label>
+          <label><input type="checkbox" id="incSide" checked /> Side</label>
+        </span>
+      </div>
+      <div id="deckList" class="deck-list"></div>
+      <progress id="deckProgress" hidden></progress>
+      <div id="deckMsg" class="hint"></div>
+      <label class="check"><input type="checkbox" id="deckScope" checked /> Cerca solo tra le carte del mazzo (consigliato: molto più preciso)</label>
+      <label class="check">Dorso (opzionale, per riconoscere le carte coperte): <input id="backFile" type="file" accept="image/*" /></label>
+      <div class="row">
+        <button id="deckGo" disabled>Scarica e prepara</button>
+        <button id="deckClear">Rimuovi mazzo</button>
+        <button id="deckClose">Chiudi</button>
+      </div>
+    </dialog>
     <main class="stage">
       <div class="viewport" id="stage">
         <video id="video" autoplay muted playsinline></video>

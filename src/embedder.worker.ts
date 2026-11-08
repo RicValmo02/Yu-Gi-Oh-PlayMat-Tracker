@@ -13,7 +13,7 @@ let info: ModelInfo = MODEL;
 
 export type WorkerIn =
   | { type: "init"; model: ModelInfo; device: "webgpu" | "wasm"; localModelPath?: string }
-  | { type: "embed"; id: number; rgba: ArrayBuffer; w: number; h: number; mode: Mode };
+  | { type: "embed"; id: number; rgba: ArrayBuffer; w: number; h: number; mode: Mode; reference?: boolean };
 
 export type WorkerOut =
   | { type: "progress"; file: string; progress: number }
@@ -47,6 +47,12 @@ self.onmessage = async (ev: MessageEvent<WorkerIn>) => {
       if (!backend) throw new Error("modello non inizializzato");
       const t0 = performance.now();
       const img: RgbaImage = { data: new Uint8ClampedArray(m.rgba), width: m.w, height: m.h };
+      // Immagine di riferimento del database (artwork o carta già nel formato giusto): nessun ritaglio, una sola variante.
+      if (m.reference) {
+        const v = await backend.embed(toModelInput(img, null, info.input));
+        post({ type: "result", id: m.id, vectors: [v, v], ms: performance.now() - t0 }, [v.buffer]);
+        return;
+      }
       const region = m.mode === "art" ? ART_REGION : null;
       // Due varianti: immagine raddrizzata e ruotata di 180° (ambiguità degli angoli).
       const v0 = await backend.embed(toModelInput(img, region, info.input));

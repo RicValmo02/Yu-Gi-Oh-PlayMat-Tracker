@@ -7,11 +7,15 @@ import { buildSliders, loadJson, saveJson } from "./panel";
 import { Renderer } from "./renderer";
 import { CardLayer, DEFAULT_ART, type ArtParams } from "./cardLayer";
 import { buildLibraryUI, loadLibrary } from "./library";
+import { artUrlFor } from "./artSource";
+import { DeckCache } from "./deckCache";
+import { DeckManager } from "./deck";
+import { DeckUI } from "./deckUI";
 import { Embedder } from "./embedder";
 import { EmbeddingDb, loadIndex } from "./db";
 import { Rectifier } from "./rectify";
 import { DEFAULT_IDENT, Identifier, type IdentParams, type Identification } from "./identifier";
-import type { EmbeddingIndex, Mode } from "./modelConfig";
+import { MODEL, type EmbeddingIndex, type Mode, type ModelInfo } from "./modelConfig";
 import type { CardInfo, TrackedCard } from "./types";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -31,7 +35,7 @@ const overlay = new Overlay(canvas, video, $("stage"), {
   onLayout: (cssW, cssH, vw, vh) => renderer.resize(cssW, cssH, vw, vh),
 });
 let library: CardInfo[] = [];
-const cardLayer = new CardLayer(renderer.scene, (id) => `${import.meta.env.BASE_URL}cards/${id}.jpg`, renderer.maxAnisotropy);
+const cardLayer = new CardLayer(renderer.scene, artUrlFor, renderer.maxAnisotropy);
 
 const STORAGE_KEY = "ygo-tracker-settings";
 type Settings = { deviceId?: string; resolution?: Resolution };
@@ -140,7 +144,10 @@ const identifier = new Identifier(
     rectify: (card) => rectifier?.rectify(video, card.corners, card.orientation) ?? null,
     embed: (frame, mode) => embedder!.embed(frame.rgba, frame.w, frame.h, mode),
     db: (mode) => {
-      if (!embedder?.ready || !embIndex) return null;
+      if (!embedder?.ready) return null;
+      // Con un mazzo caricato si cerca solo tra le sue carte (molto più preciso); null finché non è pronto.
+      if (deckUI?.scopeOnly && deckMgr.active) return deckMgr.db(mode);
+      if (!embIndex) return null;
       const db = dbs.get(mode);
       if (!db && !dbLoading.has(mode)) {
         dbLoading.add(mode);
@@ -166,28 +173,76 @@ modeSel.onchange = () => {
   identParams.mode = modeSel.value as Mode;
   saveJson("ygo-ident", identParams);
   identifier.reidentifyAll();
+  if (deckMgr.active) void deckUI.prepare(true); // ricalcola/scarica quanto serve per la nuova modalità
 };
+
+/** Modello usato per gli embedding: quello del database (se c'è) altrimenti quello di default. */
+function modelInfo(): ModelInfo {
+  if (embIndex) return embIndex.model;
+  if (new URLSearchParams(location.search).get("embedder") === "thumb")
+    return { backend: "thumb", id: "thumb-8x8", dtype: "none", dim: 8 * 8 * 3, input: MODEL.input }; // solo test
+  return MODEL;
+}
+
+let modelPromise: Promise<void> | null = null;
+/** Carica il modello nel worker, una sola volta (parte da subito se c'è un database, altrimenti alla prima richiesta). */
+function ensureModel(): Promise<void> {
+  return (modelPromise ??= (async () => {
+    embedder = new Embedder();
+    embedder.onProgress = (p) => (modelStatusEl.textContent = `Scaricamento modello: ${Math.round(p)}%`);
+    modelStatusEl.textContent = `Caricamento modello ${modelInfo().id}…`;
+    try {
+      const localModel = new URLSearchParams(location.search).get("localModel") ?? undefined;
+      const r = await embedder.init(modelInfo(), localModel);
+      modelStatusEl.textContent = `Modello pronto: ${r.name} su ${r.device}`;
+    } catch (e) {
+      embedder = null;
+      modelPromise = null;
+      modelStatusEl.textContent = `Modello non caricato: ${e instanceof Error ? e.message : e}`;
+      throw e;
+    }
+  })());
+}
 
 async function initIdentification() {
   embIndex = await loadIndex();
-  if (!embIndex) {
-    modelStatusEl.textContent = "Nessun database di embedding: esegui npm run embeddings (identificazione disattivata).";
-    return;
+  if (embIndex) {
+    for (const c of embIndex.cards) if (!c.back) names.set(c.id, c.name);
+    modelStatusEl.textContent = `Database: ${embIndex.cards.length} voci.`;
+    void ensureModel().catch(() => {});
+  } else {
+    modelStatusEl.textContent = "Nessun database globale: carica un mazzo (📂 Mazzo…) oppure esegui npm run embeddings.";
   }
-  for (const c of embIndex.cards) if (!c.back) names.set(c.id, c.name);
-  modelStatusEl.textContent = `Database: ${embIndex.cards.length} voci. Caricamento modello ${embIndex.model.id}…`;
-  embedder = new Embedder();
-  embedder.onProgress = (p) => (modelStatusEl.textContent = `Scaricamento modello: ${Math.round(p)}%`);
-  try {
-    const localModel = new URLSearchParams(location.search).get("localModel") ?? undefined;
-    const r = await embedder.init(embIndex.model, localModel);
-    modelStatusEl.textContent = `Modello pronto: ${r.name} su ${r.device}`;
-  } catch (e) {
-    embedder = null;
-    modelStatusEl.textContent = `Modello non caricato: ${e instanceof Error ? e.message : e}`;
-  }
+  // Mazzo usato l'ultima volta: dalla cache, senza rete.
+  let last: string | null = null;
+  try { last = localStorage.getItem("ygo-deck"); } catch { /* storage non disponibile */ }
+  if (last) void deckUI.restore(last);
 }
-initIdentification();
+
+// ---- Mazzo (.ydk) ----
+const deckCache = await DeckCache.open();
+const deckMgr = new DeckManager({
+  cache: deckCache,
+  embedder: () => embedder,
+  whenReady: ensureModel,
+  model: modelInfo,
+});
+const deckStatusEl = $<HTMLSpanElement>("deckStatus");
+let staticLibrary: CardInfo[] = [];
+const deckUI: DeckUI = new DeckUI({
+  dialog: $<HTMLDialogElement>("deckDialog"),
+  manager: deckMgr,
+  cache: deckCache,
+  getMode: () => identParams.mode,
+  onChange: (cards, scopeOnly) => {
+    if (cards) for (const c of cards) names.set(c.id, c.name);
+    setLibrary(cards ?? staticLibrary);
+    deckStatusEl.textContent = cards ? `Mazzo: ${deckMgr.name} · ${cards.length} carte${scopeOnly ? "" : " (ricerca su tutto il database)"}` : "";
+    identifier.reidentifyAll(); // il database di ricerca è cambiato
+  },
+});
+$<HTMLButtonElement>("deckBtn").onclick = () => deckUI.open();
+void initIdentification();
 
 const nameOf = (id: number | undefined) => (id === undefined ? "?" : names.get(id) ?? library.find((c) => c.id === id)?.name ?? `#${id}`);
 
@@ -241,7 +296,7 @@ function refreshCandidates() {
       b.className = "lib-item" + (st.manual && st.cardId === c.cardId ? " manual" : "");
       if (c.cardId > 0) {
         const img = document.createElement("img");
-        img.src = `${import.meta.env.BASE_URL}cards/${c.cardId}.jpg`;
+        img.src = artUrlFor(c.cardId);
         img.alt = "";
         b.append(img);
       }
@@ -263,13 +318,18 @@ flipBtn.onclick = () => selectedId !== null && identifier.toggleFlip(selectedId)
 reidBtn.onclick = () => selectedId !== null && (identifier.reidentify(selectedId), (idsKey = ""));
 unassignBtn.onclick = () => selectedId !== null && (identifier.override(selectedId, null), (idsKey = ""));
 
-loadLibrary().then((list) => {
+/** Elenco per l'assegnazione manuale: le carte del mazzo caricato, altrimenti quelle scaricate con npm run cards. */
+function setLibrary(list: CardInfo[]) {
   library = list;
   buildLibraryUI($("library"), $<HTMLInputElement>("search"), list, (c) => {
     if (selectedId === null) return void (timingsEl.textContent = "Seleziona prima una carta tracciata.");
     identifier.override(selectedId, c.id);
     idsKey = "";
   });
+}
+loadLibrary().then((list) => {
+  staticLibrary = list;
+  if (!deckMgr.active) setLibrary(list);
 });
 
 /** Click sul video → coordinate del frame → carta tracciata sotto il puntatore (l'ultima disegnata vince). */

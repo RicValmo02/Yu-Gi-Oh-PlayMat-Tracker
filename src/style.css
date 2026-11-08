@@ -38,3 +38,25 @@ body { display: flex; flex-direction: column; }
 .lib-item .score { margin-left: auto; opacity: 0.8; font-family: monospace; }
 .lib-item.manual { border-color: #7af; }
 #timings { margin-top: 6px; font-size: 12px; }
+
+.deck-status { font-size: 13px; opacity: 0.85; }
+dialog { background: #1c1c1c; color: #eee; border: 1px solid #555; border-radius: 6px; padding: 16px; width: min(640px, 94vw); }
+dialog::backdrop { background: rgba(0,0,0,0.6); }
+dialog h2 { margin: 0 0 10px; font-size: 18px; }
+.drop { border: 2px dashed #555; border-radius: 6px; padding: 18px; text-align: center; margin-bottom: 8px; }
+.drop.over { border-color: #7af; background: #222a33; }
+.filebtn { display: inline-block; padding: 3px 10px; border: 1px solid #777; border-radius: 4px; cursor: pointer; }
+.recent { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+.deck-head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; margin: 6px 0; }
+.deck-head .inc { margin-left: auto; display: flex; gap: 10px; }
+.deck-list { max-height: 300px; overflow-y: auto; border: 1px solid #333; }
+.deck-row { display: flex; align-items: center; gap: 8px; padding: 2px 6px; border-bottom: 1px solid #292929; font-size: 13px; }
+.deck-row img { width: 32px; height: 32px; object-fit: cover; background: #333; flex: none; }
+.deck-row .n { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.deck-row .m { font-family: monospace; opacity: 0.8; white-space: nowrap; }
+.deck-row.ok .m { color: #7f7; }
+.deck-row.missing .m, .deck-row.error .m { color: #f88; }
+dialog progress { width: 100%; margin: 8px 0 2px; }
+dialog .row { display: flex; gap: 8px; margin-top: 10px; }
+dialog .row button { flex: 1; padding: 6px; }
+dialog .check { display: block; margin-top: 8px; font-size: 13px; }

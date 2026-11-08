@@ -44,4 +44,5 @@ export interface CardInfo {
   def?: number;
   desc?: string;
   art: string; // percorso relativo a BASE_URL
+  count?: number; // copie nel mazzo caricato
 }
