@@ -36,10 +36,21 @@
         <select id="trackedSelect"></select>
         <div class="row">
           <button id="flip" disabled>Ruota 180°</button>
-          <button id="unassign" disabled>Rimuovi artwork</button>
+          <button id="reid" disabled>Reidentifica</button>
         </div>
+        <div class="row"><button id="unassign" disabled>Rimuovi artwork (manuale)</button></div>
+        <p class="hint">Primi candidati (clic per correggere):</p>
+        <div id="candidates" class="library"></div>
+        <p class="hint">Assegna a mano dall'elenco:</p>
         <input id="search" type="search" placeholder="Cerca carta…" />
         <div id="library" class="library"></div>
+        <h3>Identificazione</h3>
+        <div id="modelStatus" class="hint">Database: in caricamento…</div>
+        <label class="slider"><span>Immagine confrontata</span>
+          <select id="mode"><option value="art">Solo artwork</option><option value="full">Carta intera</option></select>
+        </label>
+        <div id="identSliders"></div>
+        <div id="timings" class="stats"></div>
         <h3>Visione</h3>
         <div id="sliders"></div>
         <div id="stats" class="stats">OpenCV: in caricamento…</div>

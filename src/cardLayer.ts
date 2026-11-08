@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { ART_BOX_PX, ART_CENTER, CARD_PX } from "./cardGeometry";
 import { mul3, squareToQuad, toMatrix4, type Mat3 } from "./homography";
 import type { Assignment, Corners, Point, TrackedCard } from "./types";
 
@@ -10,14 +11,12 @@ export interface ArtParams {
 export const DEFAULT_ART: ArtParams = { opacity: 1, scale: 1, lift: 0.08 };
 
 // Finestra artwork di una carta standard (421x614 px): quadrata 321 px, centro a (0.5, 0.442).
-const CARD_W = 421;
-const CARD_H = 614;
-const ART_SIDE = 321;
-const ART_CU = 0.5;
-const ART_CV = 271.5 / CARD_H;
+const CARD_W = CARD_PX.w;
+const CARD_H = CARD_PX.h;
+const ART_SIDE = ART_BOX_PX.w;
+const ART_CU = ART_CENTER.u;
+const ART_CV = ART_CENTER.v;
 const SHADOW_GROW = 1.4; // l'ombra è più grande dell'artwork per contenere la sfumatura
-const GHOST_MS = 5 * 60_000; // per quanto ricordare l'artwork di una carta sparita
-const GHOST_RADIUS = 0.8; // distanza massima del centro per riconoscerla, in lunghezze del lato lungo
 const SMOOTH_TAU_MS = 50; // costante di tempo dello smoothing lato rendering
 
 const dist = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -74,21 +73,6 @@ interface Entry {
   cur: Corners | null; // angoli mostrati (inseguono quelli del tracker al frame rate di rendering)
 }
 
-/** Ricordo di una carta con artwork che il tracker ha perso (es. coperta da una mano). */
-interface Ghost {
-  cardId: number;
-  flip: boolean;
-  center: Point;
-  longSide: number;
-  at: number;
-}
-
-const centerOf = (c: Corners): Point => ({
-  x: (c[0].x + c[1].x + c[2].x + c[3].x) / 4,
-  y: (c[0].y + c[1].y + c[2].y + c[3].y) / 4,
-});
-const longSideOf = (c: Corners) => Math.max(dist(c[0], c[1]), dist(c[1], c[2]));
-
 /** Un piano con artwork + uno d'ombra per ogni carta tracciata a cui è stata assegnata una carta. */
 export class CardLayer {
   private entries = new Map<number, Entry>();
@@ -99,8 +83,6 @@ export class CardLayer {
     map: this.shadowTex, transparent: true, depthTest: false, depthWrite: false, side: THREE.DoubleSide,
   });
   private m4 = new THREE.Matrix4();
-  private ghosts: Ghost[] = [];
-  private seen = new Set<number>(); // ID già visti: l'adozione di un ricordo vale solo per ID nuovi
 
   constructor(private scene: THREE.Scene, urlOf: (cardId: number) => string, anisotropy = 1) {
     this.textures = new TextureStore(urlOf, anisotropy);
@@ -142,9 +124,9 @@ export class CardLayer {
     this.entries.delete(trackedId);
   }
 
-  toggleFlip(trackedId: number) {
+  setFlip(trackedId: number, flip: boolean) {
     const e = this.entries.get(trackedId);
-    if (e) e.flip = !e.flip;
+    if (e) e.flip = flip;
   }
   isFlipped(trackedId: number) {
     return this.entries.get(trackedId)?.flip ?? false;
@@ -152,54 +134,15 @@ export class CardLayer {
 
   /** Allinea i piani alle carte tracciate: rimuove quelli orfani, aggiorna gli altri. dtMs = tempo dal frame precedente. */
   sync(cards: TrackedCard[], p: ArtParams, dtMs: number) {
-    const now = performance.now();
     const alive = new Map(cards.map((c) => [c.id, c]));
-    for (const id of [...this.entries.keys()]) {
-      if (alive.has(id)) continue;
-      this.remember(this.entries.get(id)!, now);
-      this.unassign(id);
-    }
-    this.ghosts = this.ghosts.filter((g) => now - g.at < GHOST_MS);
-    // Una carta nuova nello stesso punto di una sparita (mano tolta) eredita artwork e rotazione.
-    for (const c of cards) {
-      if (this.seen.has(c.id)) continue;
-      this.seen.add(c.id);
-      this.adopt(c);
-    }
-    for (const id of this.seen) if (!alive.has(id)) this.seen.delete(id);
+    for (const id of [...this.entries.keys()]) if (!alive.has(id)) this.unassign(id);
     this.shadowMat.opacity = p.opacity * 0.45 * Math.min(1, p.lift / 0.04);
     for (const e of this.entries.values()) this.update(e, alive.get(e.trackedId)!, p, dtMs);
   }
 
-  private remember(e: Entry, now: number) {
-    if (!e.cur) return;
-    const center = centerOf(e.cur);
-    const longSide = longSideOf(e.cur);
-    // una sola memoria per posizione: se la carta è stata sostituita, vale l'ultima
-    this.ghosts = this.ghosts.filter((g) => dist(g.center, center) > longSide * 0.3);
-    this.ghosts.push({ cardId: e.cardId, flip: e.flip, center, longSide, at: now });
-  }
-
-  private adopt(c: TrackedCard) {
-    const center = centerOf(c.corners);
-    const max = longSideOf(c.corners) * GHOST_RADIUS;
-    let best = -1;
-    let bestD = max;
-    this.ghosts.forEach((g, i) => {
-      const d = dist(g.center, center);
-      if (d < bestD) (best = i), (bestD = d);
-    });
-    if (best < 0) return;
-    const [g] = this.ghosts.splice(best, 1);
-    this.assign(c.id, g.cardId);
-    if (g.flip) this.toggleFlip(c.id);
-  }
-
-  /** Rimuove tutto, ricordi compresi (es. quando si ferma la webcam). */
+  /** Rimuove tutti i piani (es. quando si ferma la webcam). */
   clear() {
     for (const id of [...this.entries.keys()]) this.unassign(id);
-    this.ghosts = [];
-    this.seen.clear();
   }
 
   private makeMesh(mat: THREE.Material, order: number) {

@@ -110,6 +110,8 @@ export interface CardDrawOptions {
   showBoxes: boolean; // riquadro per le carte con artwork (le carte senza artwork lo mostrano sempre)
   selectedId: number | null;
   assigned: ReadonlySet<number>;
+  /** testo sul riquadro (nome, punteggio, stato); se manca si mostra l'ID e l'orientamento */
+  labels?: ReadonlyMap<number, { lines: string[]; color: string }>;
 }
 
 /** Disegna le carte tracciate: riquadro, ID, orientamento e marcatore dell'angolo TL. */
@@ -161,16 +163,19 @@ export function drawCards(ctx: CanvasRenderingContext2D, cards: TrackedCard[], n
 
     const cx = pts.reduce((s, c) => s + c.x, 0) / 4;
     const cy = pts.reduce((s, c) => s + c.y, 0) / 4;
-    const size = Math.round(ctx.canvas.height / 36);
-    const label = `#${card.id} ${card.orientation === "portrait" ? "verticale" : "orizzontale"}`;
+    const size = Math.round(ctx.canvas.height / 40);
+    const info = o.labels?.get(card.id);
+    const lines = info?.lines ?? [`#${card.id} ${card.orientation === "portrait" ? "verticale" : "orizzontale"}`];
     ctx.font = `bold ${size}px sans-serif`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    const tw = ctx.measureText(label).width;
-    ctx.fillStyle = "rgba(0,0,0,0.65)";
-    ctx.fillRect(cx - tw / 2 - 6, cy - size / 2 - 4, tw + 12, size + 8);
-    ctx.fillStyle = "#fff";
-    ctx.fillText(label, cx, cy);
+    const lh = size * 1.25;
+    const tw = Math.max(...lines.map((l) => ctx.measureText(l).width));
+    const top = cy - (lines.length * lh) / 2;
+    ctx.fillStyle = "rgba(0,0,0,0.7)";
+    ctx.fillRect(cx - tw / 2 - 6, top - 4, tw + 12, lines.length * lh + 8);
+    ctx.fillStyle = info?.color ?? "#fff";
+    lines.forEach((l, i) => ctx.fillText(l, cx, top + lh * (i + 0.5)));
     ctx.restore();
   }
 }

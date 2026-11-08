@@ -4,3 +4,6 @@ dist
 
 # Artwork scaricati con `npm run cards` (copyright Konami, solo uso personale)
 public/cards/
+public/embeddings/
+scripts/.cache/
+public/models/

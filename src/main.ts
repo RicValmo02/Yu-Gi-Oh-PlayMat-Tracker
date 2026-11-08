@@ -6,7 +6,12 @@ import { Tracker, DEFAULT_TRACKER, type TrackerParams } from "./tracker";
 import { buildSliders, loadJson, saveJson } from "./panel";
 import { Renderer } from "./renderer";
 import { CardLayer, DEFAULT_ART, type ArtParams } from "./cardLayer";
-import { artUrlById, buildLibraryUI, loadLibrary } from "./library";
+import { buildLibraryUI, loadLibrary } from "./library";
+import { Embedder } from "./embedder";
+import { EmbeddingDb, loadIndex } from "./db";
+import { Rectifier } from "./rectify";
+import { DEFAULT_IDENT, Identifier, type IdentParams, type Identification } from "./identifier";
+import type { EmbeddingIndex, Mode } from "./modelConfig";
 import type { CardInfo, TrackedCard } from "./types";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -26,7 +31,7 @@ const overlay = new Overlay(canvas, video, $("stage"), {
   onLayout: (cssW, cssH, vw, vh) => renderer.resize(cssW, cssH, vw, vh),
 });
 let library: CardInfo[] = [];
-const cardLayer = new CardLayer(renderer.scene, (id) => artUrlById(library, id), renderer.maxAnisotropy);
+const cardLayer = new CardLayer(renderer.scene, (id) => `${import.meta.env.BASE_URL}cards/${id}.jpg`, renderer.maxAnisotropy);
 
 const STORAGE_KEY = "ygo-tracker-settings";
 type Settings = { deviceId?: string; resolution?: Resolution };
@@ -56,10 +61,12 @@ const detectChk = $<HTMLInputElement>("detect");
 const debugChk = $<HTMLInputElement>("showDebug");
 const statsEl = $<HTMLDivElement>("stats");
 let detector: CardDetector | null = null;
+let rectifier: Rectifier | null = null;
 let cards: TrackedCard[] = [];
 let lastDetect = 0;
 let procMs = 0;
 let lastCount = 0;
+let lastTimingsAt = 0;
 
 const persist = () => (saveJson("ygo-vision", vision), saveJson("ygo-tracker", trackerParams));
 buildSliders($("sliders"), vision, [
@@ -81,6 +88,7 @@ buildSliders($("sliders"), trackerParams, [
 loadCv()
   .then((cv) => {
     detector = new CardDetector(cv);
+    rectifier = new Rectifier(cv);
     statsEl.textContent = "OpenCV pronto";
   })
   .catch((e) => (statsEl.textContent = `OpenCV non caricato: ${e}`));
@@ -100,6 +108,7 @@ const mirrorChk = $<HTMLInputElement>("mirror");
 const boxesChk = $<HTMLInputElement>("showBoxes");
 const trackedSel = $<HTMLSelectElement>("trackedSelect");
 const flipBtn = $<HTMLButtonElement>("flip");
+const reidBtn = $<HTMLButtonElement>("reid");
 const unassignBtn = $<HTMLButtonElement>("unassign");
 let selectedId: number | null = null;
 let idsKey = "";
@@ -114,33 +123,151 @@ mirrorChk.onchange = () => ((ui.mirror = mirrorChk.checked), applyMirror(), save
 boxesChk.onchange = () => ((ui.showBoxes = boxesChk.checked), saveJson("ygo-ui", ui));
 applyMirror();
 
+// ---- Identificazione ----
+const identParams: IdentParams = loadJson("ygo-ident", DEFAULT_IDENT);
+const modelStatusEl = $<HTMLDivElement>("modelStatus");
+const timingsEl = $<HTMLDivElement>("timings");
+const candidatesEl = $<HTMLDivElement>("candidates");
+const modeSel = $<HTMLSelectElement>("mode");
+let embedder: Embedder | null = null;
+let embIndex: EmbeddingIndex | null = null;
+const dbs = new Map<Mode, EmbeddingDb>();
+const dbLoading = new Set<Mode>();
+const names = new Map<number, string>();
+
+const identifier = new Identifier(
+  {
+    rectify: (card) => rectifier?.rectify(video, card.corners, card.orientation) ?? null,
+    embed: (frame, mode) => embedder!.embed(frame.rgba, frame.w, frame.h, mode),
+    db: (mode) => {
+      if (!embedder?.ready || !embIndex) return null;
+      const db = dbs.get(mode);
+      if (!db && !dbLoading.has(mode)) {
+        dbLoading.add(mode);
+        EmbeddingDb.load(embIndex, mode).then((d) => {
+          if (d) dbs.set(mode, d);
+          else modelStatusEl.textContent = `Manca il database per la modalità "${mode}": rilancia npm run embeddings.`;
+        });
+      }
+      return db ?? null;
+    },
+  },
+  identParams,
+);
+buildSliders($("identSliders"), identParams, [
+  { key: "threshold", label: "Soglia di confidenza", min: 0, max: 1, step: 0.01, fmt: (v) => v.toFixed(2) },
+  { key: "margin", label: "Distacco 1°-2° candidato", min: 0, max: 0.2, step: 0.005, fmt: (v) => v.toFixed(3) },
+  { key: "frames", label: "Frame per la votazione", min: 1, max: 12, step: 1 },
+  { key: "intervalMs", label: "Intervallo tra frame (ms)", min: 0, max: 500, step: 25 },
+  { key: "retryMs", label: "Riprova sconosciute dopo (ms)", min: 500, max: 10000, step: 250 },
+], () => saveJson("ygo-ident", identParams));
+modeSel.value = identParams.mode;
+modeSel.onchange = () => {
+  identParams.mode = modeSel.value as Mode;
+  saveJson("ygo-ident", identParams);
+  identifier.reidentifyAll();
+};
+
+async function initIdentification() {
+  embIndex = await loadIndex();
+  if (!embIndex) {
+    modelStatusEl.textContent = "Nessun database di embedding: esegui npm run embeddings (identificazione disattivata).";
+    return;
+  }
+  for (const c of embIndex.cards) if (!c.back) names.set(c.id, c.name);
+  modelStatusEl.textContent = `Database: ${embIndex.cards.length} voci. Caricamento modello ${embIndex.model.id}…`;
+  embedder = new Embedder();
+  embedder.onProgress = (p) => (modelStatusEl.textContent = `Scaricamento modello: ${Math.round(p)}%`);
+  try {
+    const localModel = new URLSearchParams(location.search).get("localModel") ?? undefined;
+    const r = await embedder.init(embIndex.model, localModel);
+    modelStatusEl.textContent = `Modello pronto: ${r.name} su ${r.device}`;
+  } catch (e) {
+    embedder = null;
+    modelStatusEl.textContent = `Modello non caricato: ${e instanceof Error ? e.message : e}`;
+  }
+}
+initIdentification();
+
+const nameOf = (id: number | undefined) => (id === undefined ? "?" : names.get(id) ?? library.find((c) => c.id === id)?.name ?? `#${id}`);
+
+/** Testo e colore sul riquadro di una carta, in base allo stato di identificazione. */
+function labelOf(st: Identification | undefined): { lines: string[]; color: string } | undefined {
+  if (!st) return undefined;
+  const [c1, c2] = st.candidates;
+  const sc = (c?: { score: number }) => (c ? c.score.toFixed(2) : "–");
+  if (st.manual) return { lines: [st.cardId !== undefined ? nameOf(st.cardId) : "nessuna", "manuale"], color: "#8cf" };
+  switch (st.status) {
+    case "identified":
+      return { lines: [nameOf(st.cardId), `${sc(c1)} · identificata`], color: "#7f7" };
+    case "uncertain":
+      return { lines: ["incerta", `${c1?.name} ${sc(c1)}`, `${c2?.name} ${sc(c2)}`], color: "#fc4" };
+    case "unknown":
+      return { lines: ["sconosciuta", `migliore ${sc(c1)}`], color: "#f77" };
+    case "covered":
+      return { lines: ["coperta (dorso)", sc(c1)], color: "#8cf" };
+    default:
+      return { lines: [embedder?.ready ? "analisi…" : "in attesa del modello", st.sampling ? `${st.sampling.done}/${st.sampling.total}` : ""].filter(Boolean), color: "#ccc" };
+  }
+}
+
 function refreshTrackedUI() {
-  const key = cards.map((c) => `${c.id}:${cardLayer.cardIdOf(c.id) ?? ""}`).join(",") + `|${selectedId}`;
+  const key = cards.map((c) => { const s = identifier.get(c.id); return `${c.id}:${s?.status}:${s?.cardId}:${s?.manual}`; }).join(",") + `|${selectedId}`;
   if (key === idsKey) return;
   idsKey = key;
   if (selectedId !== null && !cards.some((c) => c.id === selectedId)) selectedId = null;
   trackedSel.replaceChildren(
     new Option("— nessuna —", ""),
     ...cards.map((c) => {
-      const cid = cardLayer.cardIdOf(c.id);
-      const name = cid !== undefined ? library.find((l) => l.id === cid)?.name ?? cid : "senza artwork";
-      return new Option(`#${c.id} · ${name}`, String(c.id));
+      const s = identifier.get(c.id);
+      const what = s?.status === "identified" || s?.manual ? nameOf(s.cardId) : s?.status === "covered" ? "coperta" : s?.status ?? "";
+      return new Option(`#${c.id} · ${what}`, String(c.id));
     }),
   );
   trackedSel.value = selectedId === null ? "" : String(selectedId);
-  const assigned = selectedId !== null && cardLayer.cardIdOf(selectedId) !== undefined;
-  flipBtn.disabled = unassignBtn.disabled = !assigned;
+  flipBtn.disabled = reidBtn.disabled = unassignBtn.disabled = selectedId === null;
+}
+
+/** Primi 3 candidati della carta selezionata; clic = correzione manuale. */
+function refreshCandidates() {
+  const st = selectedId === null ? undefined : identifier.get(selectedId);
+  const key = st ? `${st.trackedId}:${st.manual}:${st.cardId}:` + st.candidates.map((c) => `${c.cardId}:${c.score.toFixed(3)}`).join(",") : "";
+  if (key === candidatesEl.dataset.key) return;
+  candidatesEl.dataset.key = key;
+  if (!st || !st.candidates.length) return void (candidatesEl.textContent = st ? "Nessun candidato ancora." : "Seleziona una carta.");
+  candidatesEl.replaceChildren(
+    ...st.candidates.map((c) => {
+      const b = document.createElement("button");
+      b.className = "lib-item" + (st.manual && st.cardId === c.cardId ? " manual" : "");
+      if (c.cardId > 0) {
+        const img = document.createElement("img");
+        img.src = `${import.meta.env.BASE_URL}cards/${c.cardId}.jpg`;
+        img.alt = "";
+        b.append(img);
+      }
+      const name = document.createElement("span");
+      name.textContent = c.name;
+      const score = document.createElement("span");
+      score.className = "score";
+      score.textContent = c.score.toFixed(2);
+      b.append(name, score);
+      b.disabled = c.cardId < 0;
+      b.onclick = () => ((idsKey = ""), identifier.override(st.trackedId, c.cardId));
+      return b;
+    }),
+  );
 }
 
 trackedSel.onchange = () => ((selectedId = trackedSel.value ? Number(trackedSel.value) : null), (idsKey = ""));
-flipBtn.onclick = () => selectedId !== null && cardLayer.toggleFlip(selectedId);
-unassignBtn.onclick = () => (selectedId !== null && cardLayer.unassign(selectedId), (idsKey = ""));
+flipBtn.onclick = () => selectedId !== null && identifier.toggleFlip(selectedId);
+reidBtn.onclick = () => selectedId !== null && (identifier.reidentify(selectedId), (idsKey = ""));
+unassignBtn.onclick = () => selectedId !== null && (identifier.override(selectedId, null), (idsKey = ""));
 
 loadLibrary().then((list) => {
   library = list;
   buildLibraryUI($("library"), $<HTMLInputElement>("search"), list, (c) => {
-    if (selectedId === null) return void (statsEl.textContent += "\nSeleziona prima una carta tracciata.");
-    cardLayer.assign(selectedId, c.id);
+    if (selectedId === null) return void (timingsEl.textContent = "Seleziona prima una carta tracciata.");
+    identifier.override(selectedId, c.id);
     idsKey = "";
   });
 });
@@ -186,10 +313,26 @@ overlay.addLayer((ctx, _w, _h, dt) => {
     tracker.reset();
     cards = [];
   }
+  identifier.update(cards, now); // al massimo un lavoro alla volta, il modello gira nel worker
+  for (const c of cards) {
+    const st = identifier.get(c.id);
+    const want = st?.status === "identified" ? st.cardId : undefined;
+    if (want !== cardLayer.cardIdOf(c.id)) want !== undefined ? cardLayer.assign(c.id, want) : cardLayer.unassign(c.id);
+    if (want !== undefined) cardLayer.setFlip(c.id, st!.flip);
+  }
   cardLayer.sync(cards, artParams, dt);
   renderer.render();
   refreshTrackedUI();
+  refreshCandidates();
+  if (now - lastTimingsAt > 250) {
+    lastTimingsAt = now;
+    const t = identifier.timings;
+    timingsEl.textContent = `Raddrizzamento: ${t.rectify.toFixed(1)} ms\nEmbedding (2 varianti): ${t.embed.toFixed(0)} ms\nRicerca: ${t.search.toFixed(1)} ms` +
+      (identifier.lastError ? `\nErrore: ${identifier.lastError}` : "");
+  }
+  const labels = new Map(cards.map((c) => [c.id, labelOf(identifier.get(c.id))!]));
   drawCards(ctx, cards, now, {
+    labels,
     mirror: ui.mirror,
     showBoxes: ui.showBoxes,
     selectedId,
@@ -243,7 +386,8 @@ function stop() {
   overlay.stop();
   tracker.reset();
   cards = [];
-  cardLayer.clear(); // rimuove piani, texture e ricordi
+  cardLayer.clear(); // rimuove piani e texture
+  identifier.clear();
   renderer.render(); // svuota il canvas WebGL
   setRunning(false);
   setStatus("Fermata");

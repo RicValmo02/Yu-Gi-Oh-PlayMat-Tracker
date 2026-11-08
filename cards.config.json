@@ -1,4 +1,10 @@
 {
+  "mode": "subset",
   "cardIds": [46986414, 89631139, 74677422, 33396948, 38033121, 70781052, 55144522, 44095762],
-  "delayMs": 1000
+  "images": ["art", "full"],
+  "delayMs": 300,
+  "back": {
+    "url": "https://images.ygoprodeck.com/images/assets/CardBack.jpg",
+    "file": "back.jpg"
+  }
 }
