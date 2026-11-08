@@ -25,3 +25,23 @@ export interface TrackedCard {
   orientation: Orientation;
   lastSeen: number;
 }
+
+/** Associazione tra una carta tracciata (ID del tracker) e una carta del database scelta a mano. */
+export interface Assignment {
+  trackedId: number;
+  cardId: number;
+}
+
+/** Voce di public/cards/cards.json (scritta da scripts/download-cards.ts). */
+export interface CardInfo {
+  id: number;
+  name: string;
+  type: string;
+  attribute?: string;
+  race?: string;
+  level?: number;
+  atk?: number;
+  def?: number;
+  desc?: string;
+  art: string; // percorso relativo a BASE_URL
+}

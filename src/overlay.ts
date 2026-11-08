@@ -16,6 +16,10 @@ export class Overlay {
     private canvas: HTMLCanvasElement,
     private video: HTMLVideoElement,
     private stage: HTMLElement,
+    private opts: {
+      extra?: HTMLElement[]; // altri elementi (es. canvas WebGL) da dimensionare come il video
+      onLayout?: (cssW: number, cssH: number, vw: number, vh: number) => void;
+    } = {},
   ) {
     this.ctx = canvas.getContext("2d")!;
     new ResizeObserver(() => this.layout()).observe(stage);
@@ -41,7 +45,7 @@ export class Overlay {
     const scale = Math.min(sw / vw, sh / vh);
     const cssW = Math.round(vw * scale);
     const cssH = Math.round(vh * scale);
-    for (const el of [this.video, this.canvas]) {
+    for (const el of [this.video, this.canvas, ...(this.opts.extra ?? [])]) {
       el.style.width = `${cssW}px`;
       el.style.height = `${cssH}px`;
     }
@@ -49,6 +53,7 @@ export class Overlay {
       this.canvas.width = vw;
       this.canvas.height = vh;
     }
+    this.opts.onLayout?.(cssW, cssH, vw, vh);
   }
 
   start() {
@@ -100,10 +105,22 @@ export class Overlay {
   }
 }
 
+export interface CardDrawOptions {
+  mirror: boolean; // video specchiato: si riflettono le coordinate X
+  showBoxes: boolean; // riquadro per le carte con artwork (le carte senza artwork lo mostrano sempre)
+  selectedId: number | null;
+  assigned: ReadonlySet<number>;
+}
+
 /** Disegna le carte tracciate: riquadro, ID, orientamento e marcatore dell'angolo TL. */
-export function drawCards(ctx: CanvasRenderingContext2D, cards: TrackedCard[], now: number) {
+export function drawCards(ctx: CanvasRenderingContext2D, cards: TrackedCard[], now: number, o: CardDrawOptions) {
+  const W = ctx.canvas.width;
   const base = Math.max(2, Math.round(ctx.canvas.height / 270));
   for (const card of cards) {
+    const isAssigned = o.assigned.has(card.id);
+    const isSel = card.id === o.selectedId;
+    if (isAssigned && !o.showBoxes && !isSel) continue;
+    const pts = card.corners.map((c) => ({ x: o.mirror ? W - c.x : c.x, y: c.y }));
     const hue = (card.id * 67) % 360;
     const missing = now - card.lastSeen > 100; // non vista di recente: tratteggiata e più tenue
     const color = `hsl(${hue} 90% 55%)`;
@@ -113,14 +130,26 @@ export function drawCards(ctx: CanvasRenderingContext2D, cards: TrackedCard[], n
     ctx.strokeStyle = color;
     ctx.fillStyle = color;
     ctx.setLineDash(missing ? [base * 3, base * 2] : []);
-    ctx.beginPath();
-    card.corners.forEach((c, i) => (i ? ctx.lineTo(c.x, c.y) : ctx.moveTo(c.x, c.y)));
-    ctx.closePath();
+    const path = () => {
+      ctx.beginPath();
+      pts.forEach((c, i) => (i ? ctx.lineTo(c.x, c.y) : ctx.moveTo(c.x, c.y)));
+      ctx.closePath();
+    };
+    if (isSel) {
+      // alone bianco sotto il riquadro per la carta selezionata
+      ctx.save();
+      ctx.strokeStyle = "#fff";
+      ctx.lineWidth = base * 3;
+      path();
+      ctx.stroke();
+      ctx.restore();
+    }
+    path();
     ctx.stroke();
     ctx.setLineDash([]);
 
     // Pallino sull'angolo TL (primo angolo) + linea del lato superiore più spessa.
-    const [tl, tr] = card.corners;
+    const [tl, tr] = pts;
     ctx.beginPath();
     ctx.arc(tl.x, tl.y, base * 2.5, 0, Math.PI * 2);
     ctx.fill();
@@ -130,8 +159,8 @@ export function drawCards(ctx: CanvasRenderingContext2D, cards: TrackedCard[], n
     ctx.lineTo(tr.x, tr.y);
     ctx.stroke();
 
-    const cx = card.corners.reduce((s, c) => s + c.x, 0) / 4;
-    const cy = card.corners.reduce((s, c) => s + c.y, 0) / 4;
+    const cx = pts.reduce((s, c) => s + c.x, 0) / 4;
+    const cy = pts.reduce((s, c) => s + c.y, 0) / 4;
     const size = Math.round(ctx.canvas.height / 36);
     const label = `#${card.id} ${card.orientation === "portrait" ? "verticale" : "orizzontale"}`;
     ctx.font = `bold ${size}px sans-serif`;
