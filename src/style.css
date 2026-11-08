@@ -10,3 +10,15 @@ body { display: flex; flex-direction: column; }
 #video, #overlay { position: absolute; }
 #video { background: #000; }
 #overlay { pointer-events: none; }
+
+.stage { gap: 8px; padding: 0 8px 8px; align-items: stretch; }
+.viewport { position: relative; flex: 1 1 0; min-width: 0; display: flex; align-items: center; justify-content: center; }
+#debug { flex: 1 1 0; min-width: 0; align-self: center; max-height: 100%; object-fit: contain; background: #000; }
+#debug[hidden] { display: none; }
+.panel { flex: 0 0 240px; overflow-y: auto; background: #1c1c1c; padding: 10px; font-size: 13px; }
+.panel .check { display: block; margin-bottom: 8px; }
+.slider { display: block; margin-bottom: 8px; }
+.slider input { width: 100%; }
+.stats { font-family: monospace; margin-top: 12px; white-space: pre; }
+.legend { margin-top: 10px; font-size: 12px; opacity: 0.8; }
+@media (max-width: 800px) { .stage { flex-wrap: wrap; } .panel { flex-basis: 100%; } }

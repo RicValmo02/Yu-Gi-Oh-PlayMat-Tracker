@@ -17,9 +17,19 @@
       <button id="stop" disabled>Ferma</button>
       <span id="status"></span>
     </header>
-    <main class="stage" id="stage">
-      <video id="video" autoplay muted playsinline></video>
-      <canvas id="overlay"></canvas>
+    <main class="stage">
+      <div class="viewport" id="stage">
+        <video id="video" autoplay muted playsinline></video>
+        <canvas id="overlay"></canvas>
+      </div>
+      <canvas id="debug" hidden></canvas>
+      <aside class="panel">
+        <label class="check"><input type="checkbox" id="detect" checked /> Rileva carte</label>
+        <label class="check"><input type="checkbox" id="showDebug" /> Vista bordi/contorni</label>
+        <div id="sliders"></div>
+        <div id="stats" class="stats">OpenCV: in caricamento…</div>
+        <div class="legend">Debug: <span style="color:#4f4">verde = accettato</span>, <span style="color:#f44">rosso = scartato</span></div>
+      </aside>
     </main>
     <script type="module" src="/src/main.ts"></script>
   </body>
